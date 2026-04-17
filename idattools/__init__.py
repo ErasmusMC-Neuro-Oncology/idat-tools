@@ -22,7 +22,7 @@
 
 
     You can contact me via the github repository at the following url:
-    <https://github.com/yhoogstrate/dr-disco>
+    <https://github.com/yhoogstrate/idat-tools>
 
     You can e-mail me via 'y.hoogstrate' at the following webmail domain:
     erasmusmc dot nl
@@ -31,7 +31,7 @@
 import logging
 import sys
 
-__version_info__ = ('0', '3', '0')
+__version_info__ = ('0', '3', '1')
 __version__ = '.'.join(__version_info__) if (len(__version_info__) == 3) else '.'.join(__version_info__[0:3]) + "-" + __version_info__[3]
 __author__ = 'Youri Hoogstrate'
 __homepage__ = 'https://github.com/yhoogstrate/idat-tools'
@@ -40,6 +40,8 @@ __license_notice__ = 'License GPLv3+: GNU GPL version 3 or later <http://gnu.org
 
 
 __log_format__ = "[%(filename)s:%(lineno)s - %(funcName)s()] %(asctime)s - %(levelname)s - %(message)s"
-logging.basicConfig(level=logging.DEBUG, format=__log_format__, stream=sys.stderr)
+
+# Library best practice: use NullHandler to prevent logging configuration side effects
 log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
