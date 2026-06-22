@@ -4,7 +4,7 @@
 # https://github.com/HenrikBengtsson/illuminaio/blob/develop/R/readIDAT_nonenc.R
 # https://github.com/bioinformed/glu-genetics/blob/dcbbbf67a308d35e157b20a9c76373530510379a/glu/lib/illumina.py#L44-L61
 
-import idattools # log
+import idattools
 from .utils import *
 
 from pathlib import Path
@@ -13,14 +13,8 @@ import re
 import random
 import warnings
 
-from beartype import beartype
-from _io import BufferedReader, BufferedWriter
-
 import numpy as np
-from numpy import ndarray
-
 import pandas as pd
-from pandas import DataFrame
 
 
 
@@ -77,7 +71,6 @@ class IDATdata(object):
 
         out += "# array_n_probes:       " + str(self.array_n_probes) + "\n"
         out += "# total intensity:      " + str(sum(self.per_probe_matrix['probe_mean_intensities'])) + "\n"
-        out += "# array_n_probes:       " + str(self.array_n_probes) + "\n"
         out += "# manifest:             '" + str(self.array_manifest) + "'\n"
         out += "# manifest (old style): '" + str(self.array_old_style_manifest) + "'\n"
         out += "# unknown #1:           [" + "][".join([str(_) for _ in self.array_unknown_1]) + "]\n"
@@ -158,7 +151,7 @@ class IDATdata(object):
 
 
     @beartype
-    def set_per_probe_matrix(self, per_probe_matrix: DataFrame) -> DataFrame:
+    def set_per_probe_matrix(self, per_probe_matrix: pd.DataFrame) -> pd.DataFrame:
         if per_probe_matrix.shape[0] != self.array_n_probes:
             raise Exception("Matrix (nrow: "+str(per_probe_matrix.shape[0])+") does no fit size of the array (n="+str(self.array_n_probes)+")")
     
@@ -353,7 +346,7 @@ class IDATreader:
 
 
     @beartype
-    def parse_probe_ids(self, fh_in: BufferedReader, section_seek_index: dict) -> ndarray:
+    def parse_probe_ids(self, fh_in: BufferedReader, section_seek_index: dict) -> np.ndarray:
         fh_in.seek(section_seek_index['PROBE_IDS'])
         
         if self.data.array_n_probes is None:
@@ -370,7 +363,7 @@ class IDATreader:
         return probe_ids
 
     @beartype
-    def parse_probe_std_devs(self, fh_in: BufferedReader, section_seek_index: dict) -> ndarray:
+    def parse_probe_std_devs(self, fh_in: BufferedReader, section_seek_index: dict) -> np.ndarray:
         fh_in.seek(section_seek_index['PROBE_STD_DEVS'])
         
         if self.data.array_n_probes is None:
@@ -384,7 +377,7 @@ class IDATreader:
         return probe_std_devs
 
     @beartype
-    def parse_probe_mean_intensities(self, fh_in: BufferedReader, section_seek_index: dict) -> ndarray:
+    def parse_probe_mean_intensities(self, fh_in: BufferedReader, section_seek_index: dict) -> np.ndarray:
         fh_in.seek(section_seek_index['PROBE_MEAN_INTENSITIES'])
         
         if self.data.array_n_probes is None:
@@ -398,7 +391,7 @@ class IDATreader:
         return probe_mean_intensities
 
     @beartype
-    def parse_probe_n_beads(self, fh_in: BufferedReader, section_seek_index: dict) -> ndarray:
+    def parse_probe_n_beads(self, fh_in: BufferedReader, section_seek_index: dict) -> np.ndarray:
         fh_in.seek(section_seek_index['PROBE_N_BEADS'])
         
         if self.data.array_n_probes is None:
@@ -412,7 +405,7 @@ class IDATreader:
         return probe_n_beads
 
     @beartype
-    def parse_probe_mid_block(self, fh_in: BufferedReader, section_seek_index: dict) -> ndarray:
+    def parse_probe_mid_block(self, fh_in: BufferedReader, section_seek_index: dict) -> np.ndarray:
         fh_in.seek(section_seek_index['PROBE_MID_BLOCK'])
         
         if self.data.array_n_probes is None:
@@ -432,7 +425,7 @@ class IDATreader:
         return probe_mid_block
 
     @beartype
-    def parse_per_probe_matrix(self, fh_in: BufferedReader, section_seek_index: dict) -> DataFrame:
+    def parse_per_probe_matrix(self, fh_in: BufferedReader, section_seek_index: dict) -> pd.DataFrame:
         per_probe_matrix = pd.DataFrame({
             'probe_ids': self.parse_probe_ids(fh_in, section_seek_index),
             'probe_std_devs': self.parse_probe_std_devs(fh_in, section_seek_index),
@@ -699,7 +692,7 @@ class IDATmixer:
             raise Exception("Unclear input type (idat_reference)")
 
     @beartype
-    def mix(self, idat_mixed_in: IDATdata,  mixed_in_fraction: float, output_file: Path):
+    def mix(self, idat_mixed_in: IDATdata, mixed_in_fraction: float, output_file: Path, geometric_mean: bool = False):
         if isinstance(idat_mixed_in, IDATdata):
             pass # ok
         elif isinstance(idat_mixed_in, IDATreader):
@@ -827,15 +820,35 @@ class IDATmixer:
             raise Exception("Arrays have different probe_mid_block id's (or ordering?)")
 
 
+        f = mixed_in_fraction
+
+        if geometric_mean:
+            # Geometric mean: I_ref^(1-f) * I_mix^f = exp((1-f)*log(I_ref) + f*log(I_mix))
+            # Intensities are clipped at 1 to avoid log(0) for probes with zero signal.
+            left_i = np.clip(data_left["probe_mean_intensities"].to_numpy(float), 1, None)
+            right_i = np.clip(data_right["probe_mean_intensities"].to_numpy(float), 1, None)
+            mixed_intensities = np.round(np.exp((1 - f) * np.log(left_i) + f * np.log(right_i))).astype("<u2")
+
+            left_sd = np.clip(data_left["probe_std_devs"].to_numpy(float), 1, None)
+            right_sd = np.clip(data_right["probe_std_devs"].to_numpy(float), 1, None)
+            mixed_std_devs = np.round(np.exp((1 - f) * np.log(left_sd) + f * np.log(right_sd))).astype("<u2")
+        else:
+            mixed_intensities = np.round(
+                data_left["probe_mean_intensities"] * (1 - f) + data_right["probe_mean_intensities"] * f
+            ).astype("<u2")
+            mixed_std_devs = np.round(
+                data_left["probe_std_devs"] * (1 - f) + data_right["probe_std_devs"] * f
+            ).astype("<u2")
+
         new_data = pd.DataFrame({
             'probe_ids': data_left["probe_ids"],
-            
-            'probe_std_devs': round((data_left["probe_std_devs"] * (1 - mixed_in_fraction)) + (data_right["probe_std_devs"] * (mixed_in_fraction))).to_numpy("<u2"),
-            'probe_mean_intensities': round((data_left["probe_mean_intensities"] * (1 - mixed_in_fraction)) + (data_right["probe_mean_intensities"] * (mixed_in_fraction))).to_numpy("<u2"),
-            'probe_n_beads': round((data_left["probe_n_beads"] * (1 - mixed_in_fraction)) + (data_right["probe_n_beads"] * (mixed_in_fraction))).to_numpy("<u1"),
-            
+            'probe_std_devs': mixed_std_devs,
+            'probe_mean_intensities': mixed_intensities,
+            'probe_n_beads': np.round(
+                data_left["probe_n_beads"] * (1 - f) + data_right["probe_n_beads"] * f
+            ).astype("<u1"),
             'probe_mid_block': data_left["probe_mid_block"]
-            })
+        })
 
         mixed_data.set_per_probe_matrix(new_data)
 

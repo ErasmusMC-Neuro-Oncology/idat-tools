@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idat-tools"
+dynamic = ["version"]
+description = "Toolkit to read, modify and export idat files"
+readme = "README.md"
+license = {text = "GNU General Public License v3 (GPLv3)"}
+authors = [{name = "Youri Hoogstrate", email = "y.hoogstrate@erasmusmc.nl"}]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "beartype",
+    "numpy",
+    "pandas",
+    "click",
+]
+
+[project.urls]
+Homepage = "https://github.com/yhoogstrate/idat-tools"
+
+[project.scripts]
+idat-tools = "idattools.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "idattools.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["idattools*"]

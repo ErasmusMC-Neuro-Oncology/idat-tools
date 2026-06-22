@@ -1,0 +1,131 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the accompanying article below."
+title: "idat-tools"
+type: software
+
+authors:
+  - family-names: Hoogstrate
+    given-names: Youri
+  - family-names: van Hijfte
+    given-names: Levi
+  - family-names: de Heer
+    given-names: Iris
+  - family-names: de Wit
+    given-names: Maurice
+  - family-names: Dipasquale
+    given-names: Angelo
+  - family-names: Weenink
+    given-names: Bas
+  - family-names: Maas
+    given-names: Sybren L.N.
+  - family-names: Weller
+    given-names: Michael
+  - family-names: Mair
+    given-names: Maximilian J.
+  - family-names: Wöhrer
+    given-names: Adelheid
+  - family-names: Koekkoek
+    given-names: Johan A.F.
+  - family-names: Kouwenhoven
+    given-names: Mathilde C.M.
+  - family-names: Westerman
+    given-names: Bart A.
+  - family-names: Niers
+    given-names: Anneke M.
+  - family-names: Varn
+    given-names: Frederick S.
+  - family-names: Khasraw
+    given-names: Mustafa
+  - family-names: Wesseling
+    given-names: Pieter
+  - family-names: French
+    given-names: Pim J.
+
+repository-code: "https://github.com/yhoogstrate/idat-tools"
+url: "https://github.com/yhoogstrate/idat-tools"
+
+keywords:
+  - idat
+  - DNA methylation EPIC array
+
+license: GPL-3.0
+version: "1.0.0"
+date-released: "2026-06-22"
+
+preferred-citation:
+  type: article
+  title: "TITEL VAN HET ARTIKEL HIER"
+  authors:
+    - family-names: Hoogstrate
+      given-names: Youri
+    - family-names: Ghisai
+      given-names: Santoesha A.
+    - family-names: van Hijfte
+      given-names: Levi
+    - family-names: Head
+      given-names: Rania
+    - family-names: de Heer
+      given-names: Iris
+    - family-names: Padovan
+      given-names: Marta
+    - family-names: de Wit
+      given-names: Maurice
+    - family-names: Vallentgoed
+      given-names: Wies R.
+    - family-names: Dipasquale
+      given-names: Angelo
+    - family-names: Wijnenga
+      given-names: Maarten M.J.
+    - family-names: Weenink
+      given-names: Bas
+    - family-names: Luning
+      given-names: Rosa
+    - family-names: Maas
+      given-names: Sybren L.N.
+    - family-names: Brzobohata
+      given-names: Adela
+    - family-names: Weller
+      given-names: Michael
+    - family-names: Weiss
+      given-names: Tobias
+    - family-names: Mair
+      given-names: Maximilian J.
+    - family-names: Berghoff
+      given-names: Anna S.
+    - family-names: Wöhrer
+      given-names: Adelheid
+    - family-names: Jeltsch
+      given-names: Albert
+    - family-names: Koekkoek
+      given-names: Johan A.F.
+    - family-names: Hazelbag
+      given-names: Hans M.
+    - family-names: Kouwenhoven
+      given-names: Mathilde C.M.
+    - family-names: Kim
+      given-names: Yongsoo
+    - family-names: Westerman
+      given-names: Bart A.
+    - family-names: Ylstra
+      given-names: Bauke
+    - family-names: Niers
+      given-names: Johanna M.
+    - family-names: Johnson
+      given-names: Kevin C.
+    - family-names: Varn
+      given-names: Frederick S.
+    - family-names: Verhaak
+      given-names: Roel G.W.
+    - family-names: Khasraw
+      given-names: Mustafa
+    - family-names: van den Bent
+      given-names: Martin J.
+    - family-names: Wesseling
+      given-names: Pieter
+    - family-names: French
+      given-names: Pim J.
+
+  journal: "Cell Reports Medicine"
+  year: 2026
+  doi: "10.1016/j.xcrm.2026.102682"
+  url: "https://www.sciencedirect.com/science/article/pii/S2666379126000996"

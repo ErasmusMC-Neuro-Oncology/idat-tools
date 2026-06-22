@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 
 
-import math
 import numpy as np
 from numpy import dtype
 
 from beartype import beartype
-from _io import BufferedReader
-from _io import BufferedWriter
+from io import BufferedReader, BufferedWriter
 
 
 @beartype
