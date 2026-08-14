@@ -41,6 +41,9 @@ section_names = {
 }
 
 
+UINT16_MAX = np.iinfo(np.uint16).max # intensities and std devs are stored as unsigned 16 bit
+
+
 
 class IDATdata(object):
 
@@ -609,10 +612,10 @@ class IDATwriter(IDATdata):
                 "ARRAY_OLD_STYLE_MANIFEST": binary_string_len(self.data.array_old_style_manifest),
                 "ARRAY_UNKNOWN_1": 1 + 1 + 1 + 1,
                 "ARRAY_SAMPLE_ID": binary_string_len(self.data.array_sample_id),
-                "ARRAY_DESCRIPTION": binary_string_len(self.data.array_sample_id),
+                "ARRAY_DESCRIPTION": binary_string_len(self.data.array_description), # was: array_sample_id - only correct as long as both are ''
                 "ARRAY_PLATE": binary_string_len(self.data.array_plate),
-                "ARRAY_WELL": binary_string_len(self.data.array_plate),
-                "ARRAY_UNKNOWN_2": binary_string_len(self.data.array_plate)
+                "ARRAY_WELL": binary_string_len(self.data.array_well), # was: array_plate - only correct as long as both are ''
+                "ARRAY_UNKNOWN_2": binary_string_len(self.data.array_unknown_2) # was: array_plate - only correct as long as both are ''
             }
 
             offset_virtual = offset # should be 16
@@ -692,13 +695,19 @@ class IDATmixer:
             raise Exception("Unclear input type (idat_reference)")
 
     @beartype
-    def mix(self, idat_mixed_in: IDATdata, mixed_in_fraction: float, output_file: Path, geometric_mean: bool = False):
+    def mix(self, idat_mixed_in: IDATdata, mixed_in_fraction: float, output_file: Path, geometric_mean: bool = False, subtract: bool = False):
         if isinstance(idat_mixed_in, IDATdata):
             pass # ok
         elif isinstance(idat_mixed_in, IDATreader):
             idat_mixed_in = idat_mixed_in.data
         else:
             raise Exception("Unclear input type (idat_mixed_in)")
+
+        if geometric_mean and subtract:
+            raise Exception("geometric_mean and subtract are mutually exclusive")
+
+        if subtract and mixed_in_fraction >= 1.0:
+            raise Exception("subtract requires mixed_in_fraction < 1.0 (at f=1.0 there is no reference signal left to recover)")
 
         idattools.log.debug("Initializing new IDATdata object")
         mixed_data = IDATdata()
@@ -822,7 +831,41 @@ class IDATmixer:
 
         f = mixed_in_fraction
 
-        if geometric_mean:
+        if subtract:
+            # Inverse of the linear mix: I_obs = (1-f) * I_pure + f * I_ref
+            # so:                        I_pure = (I_obs - f * I_ref) / (1-f)
+            # Here 'left' is the observed (e.g. tumour) sample and 'right' the component
+            # to be removed (e.g. normal). Subtracting with f equal to the fraction used
+            # by 'mix' therefore returns the original reference file.
+            # Intensities are unsigned 16 bit, so the result must be clipped at 0 before
+            # casting - a negative value would otherwise wrap around to ~65000.
+            left_i = data_left["probe_mean_intensities"].to_numpy(float)
+            right_i = data_right["probe_mean_intensities"].to_numpy(float)
+            residual_i = (left_i - (f * right_i)) / (1 - f)
+
+            n_negative = int((residual_i < 0).sum())
+            if n_negative > 0:
+                idattools.log.warning(
+                    "Subtraction resulted in " + str(n_negative) + " negative probe intensities (" +
+                    str(round(100.0 * n_negative / len(residual_i), 2)) + "%) that were clipped to 0 - "
+                    "the mixed-in fraction may be set too high"
+                )
+
+            mixed_intensities = np.round(np.clip(residual_i, 0, UINT16_MAX)).astype("<u2")
+
+            # Removing a component from the mean does not remove its noise; the
+            # uncertainties add up instead. Propagated in quadrature and rescaled by the
+            # same 1/(1-f) factor as the intensities.
+            left_sd = data_left["probe_std_devs"].to_numpy(float)
+            right_sd = data_right["probe_std_devs"].to_numpy(float)
+            mixed_std_devs = np.round(np.clip(
+                np.sqrt(np.square(left_sd) + np.square(f * right_sd)) / (1 - f), 0, UINT16_MAX
+            )).astype("<u2")
+
+            # probe_n_beads is a physical bead count - nothing is subtracted from the
+            # beads themselves, so the counts of the observed sample are kept as is.
+            mixed_n_beads = data_left["probe_n_beads"].to_numpy("<u1")
+        elif geometric_mean:
             # Geometric mean: I_ref^(1-f) * I_mix^f = exp((1-f)*log(I_ref) + f*log(I_mix))
             # Intensities are clipped at 1 to avoid log(0) for probes with zero signal.
             left_i = np.clip(data_left["probe_mean_intensities"].to_numpy(float), 1, None)
@@ -832,6 +875,10 @@ class IDATmixer:
             left_sd = np.clip(data_left["probe_std_devs"].to_numpy(float), 1, None)
             right_sd = np.clip(data_right["probe_std_devs"].to_numpy(float), 1, None)
             mixed_std_devs = np.round(np.exp((1 - f) * np.log(left_sd) + f * np.log(right_sd))).astype("<u2")
+
+            mixed_n_beads = np.round(
+                data_left["probe_n_beads"] * (1 - f) + data_right["probe_n_beads"] * f
+            ).astype("<u1")
         else:
             mixed_intensities = np.round(
                 data_left["probe_mean_intensities"] * (1 - f) + data_right["probe_mean_intensities"] * f
@@ -840,13 +887,15 @@ class IDATmixer:
                 data_left["probe_std_devs"] * (1 - f) + data_right["probe_std_devs"] * f
             ).astype("<u2")
 
+            mixed_n_beads = np.round(
+                data_left["probe_n_beads"] * (1 - f) + data_right["probe_n_beads"] * f
+            ).astype("<u1")
+
         new_data = pd.DataFrame({
             'probe_ids': data_left["probe_ids"],
             'probe_std_devs': mixed_std_devs,
             'probe_mean_intensities': mixed_intensities,
-            'probe_n_beads': np.round(
-                data_left["probe_n_beads"] * (1 - f) + data_right["probe_n_beads"] * f
-            ).astype("<u1"),
+            'probe_n_beads': mixed_n_beads,
             'probe_mid_block': data_left["probe_mid_block"]
         })
 
@@ -857,18 +906,20 @@ class IDATmixer:
         if len(self.data_idat_ref.array_run_info) != len(idat_mixed_in.array_run_info):
             raise Exception("different array_run_info size")
         else:
+            sep = "-" if subtract else "&" # keeps the provenance in the output file self documenting
+
             ri = []
             for i in range(len(self.data_idat_ref.array_run_info)):
                 rir = (
-                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][0] + "&" + \
+                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][0] + sep + \
                     idat_mixed_in.get_sentrix_id() + ":" + idat_mixed_in.array_run_info[i][0],
-                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][1] + "&" + \
+                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][1] + sep + \
                     idat_mixed_in.get_sentrix_id() + ":" + idat_mixed_in.array_run_info[i][1],
-                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][2] + "&" + \
+                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][2] + sep + \
                     idat_mixed_in.get_sentrix_id() + ":" + idat_mixed_in.array_run_info[i][2],
-                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][3] + "&" + \
+                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][3] + sep + \
                     idat_mixed_in.get_sentrix_id() + ":" + idat_mixed_in.array_run_info[i][3],
-                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][4] + "&" + \
+                    self.data_idat_ref.get_sentrix_id() + ":" + self.data_idat_ref.array_run_info[i][4] + sep + \
                     idat_mixed_in.get_sentrix_id() + ":" + idat_mixed_in.array_run_info[i][4]
                 )
 
@@ -880,7 +931,3 @@ class IDATmixer:
         w.write(output_file)
         
         return mixed_data
-
-
-
-

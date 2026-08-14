@@ -70,3 +70,27 @@ def CLI_mix(idat_file_reference, idat_file_mixed_in, idat_file_output, mix_ratio
 
     m = IDATmixer(idat_ref.data)
     m.mix(idat_mix.data, mix_ratio, Path(idat_file_output), geometric_mean=geometric_mean)
+
+
+@CLI.command(name="subtract", short_help="Subtract one IDAT file from another (e.g. normal from tumour)")
+@click.argument('idat_file_observed', type=click.Path(exists=True))
+@click.argument('idat_file_subtracted', type=click.Path(exists=True))
+@click.argument('idat_file_output', type=click.Path(exists=False))
+@click.option('-r', '--mix-ratio', type=click.FloatRange(min=0, max=1, max_open=True), default=0.5,
+              help="Estimated fraction of the subtracted file present in the observed file. "
+                   "E.g. 0.25 assumes the observed file consists of 75% signal of interest "
+                   "and 25% of the file that is subtracted.",
+              show_default=True)
+def CLI_subtract(idat_file_observed, idat_file_subtracted, idat_file_output, mix_ratio):
+    idat_obs = IDATreader(Path(idat_file_observed))
+    idat_sub = IDATreader(Path(idat_file_subtracted))
+
+    idattools.log.debug(
+        "Subtracting: " + idat_sub.data.get_sentrix_id() +
+        " [" + str(round(mix_ratio * 100, 2)) + "%]" +
+        " from " +
+        idat_obs.data.get_sentrix_id()
+    )
+
+    m = IDATmixer(idat_obs.data)
+    m.mix(idat_sub.data, mix_ratio, Path(idat_file_output), subtract=True)

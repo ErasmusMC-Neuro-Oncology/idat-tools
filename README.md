@@ -12,6 +12,7 @@ Supported operations:
 |---------|-------------|
 | `idat-tools view` | Inspect IDAT metadata and probe intensity table |
 | `idat-tools mix`  | Create in-silico mixed samples at a controlled ratio |
+| `idat-tools subtract` | Remove the contribution of one sample from another (e.g. normal from tumour) |
 
 ---
 
@@ -141,6 +142,90 @@ idat-tools mix -r 0.25 --geometric-mean \
 ```
 
 The output filename should follow standard Sentrix ID nomenclature (`<barcode>_<position>_<channel>.idat`); if it does not, a random barcode and chip label are generated and a warning is printed.
+
+---
+
+## `idat-tools subtract`
+
+Removes the estimated contribution of one sample from another — for example subtracting a matched normal from a tumour sample to approximate the profile of the tumour cells alone. It is the algebraic inverse of `idat-tools mix`.
+
+```bash
+idat-tools subtract [OPTIONS] IDAT_FILE_OBSERVED IDAT_FILE_SUBTRACTED IDAT_FILE_OUTPUT
+
+Options:
+  -r, --mix-ratio FLOAT RANGE  Estimated fraction of the subtracted file present
+                               in the observed file  [default: 0.5; 0<=x<1]
+  --help                       Show this message and exit
+```
+
+### Subtraction model
+
+The observed sample is assumed to follow the same linear mixing model that `mix` implements:
+
+```
+I_obs = (1 − r) × I_pure  +  r × I_sub
+```
+
+Solving for the signal of interest gives:
+
+```
+I_pure = ( I_obs  −  r × I_sub ) / (1 − r)
+```
+
+Here `r` is the estimated fraction of the subtracted sample in the observed file — for a tumour biopsy, one minus the tumour purity. The division by `1 − r` rescales the remaining signal back to full intensity, so subtraction is an exact inverse of mixing rather than merely a difference.
+
+Consequences worth being aware of:
+
+- **`r` must be below 1.** At `r = 1` the observed file consists entirely of the subtracted sample and there is nothing left to recover; the value is rejected.
+- **Negative results are clipped to 0.** Intensities are stored as unsigned 16-bit integers, so a probe where the subtracted signal exceeds the observed signal cannot be represented. Such probes are set to 0 and the number of affected probes is reported as a warning. A high proportion is a sign that `r` is set too high.
+- **Standard deviations are propagated, not subtracted.** Removing a component from the mean does not remove its noise, so the uncertainties are combined in quadrature and rescaled: `sqrt( sd_obs² + (r × sd_sub)² ) / (1 − r)`.
+- **Bead counts are carried over unchanged.** `probe_n_beads` is a physical count of beads on the array and is unaffected by the arithmetic.
+- There is no `--geometric-mean` equivalent; subtraction is defined only for the linear model.
+
+### Examples
+
+```bash
+# Remove an estimated 25% normal contamination from a tumour sample
+idat-tools subtract -r 0.25 \
+    207513420108_R01C01_Grn.idat \
+    207513420108_R02C01_Grn.idat \
+    207513420108_R97C01_Grn.idat
+```
+
+Because `subtract` inverts `mix`, applying both at the same ratio returns the original reference file, up to the rounding of the two intermediate integer casts:
+
+```bash
+idat-tools mix      -r 0.25 ref_Grn.idat other_Grn.idat mixed_Grn.idat
+idat-tools subtract -r 0.25 mixed_Grn.idat other_Grn.idat recovered_Grn.idat
+# recovered_Grn.idat matches ref_Grn.idat to within 1 intensity unit
+```
+
+The rounding error grows with `r`, since the `1 / (1 − r)` rescaling amplifies it: it stays within 1 unit up to `r = 0.5` and reaches roughly 5 units at `r = 0.9`.
+
+As with `mix`, the output filename should follow standard Sentrix ID nomenclature.
+
+### Interpretation
+
+Subtraction operates on **raw probe intensities**, which still contain background fluorescence, dye bias and array-specific batch effects. The linear mixing model is therefore only approximately true of real data: the round-trip against `mix` is exact by construction, but subtracting a real matched normal from a real tumour will not yield a perfectly pure tumour profile. Treat the output as an enrichment of the signal of interest rather than a clean deconvolution, and normalise downstream as usual.
+
+---
+
+## Testing
+
+The test suite downloads a small set of public IDAT files from GEO (cached in `cache/`) and exercises all three commands:
+
+```bash
+source .venv/bin/activate
+make test
+```
+
+To run against your own files instead:
+
+```bash
+IDAT_REF=my_R01C01_Grn.idat IDAT_MIX=my_R02C01_Grn.idat bash tests.sh
+```
+
+Both files must originate from the same array type; mixing an EPIC with a 450k file is rejected.
 
 ---
 

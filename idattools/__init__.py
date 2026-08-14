@@ -22,7 +22,7 @@
 
 
     You can contact me via the github repository at the following url:
-    <https://github.com/yhoogstrate/idat-tools>
+    <https://github.com/ErasmusMC-Neuro-Oncolog/idat-tools>
 
     You can e-mail me via 'y.hoogstrate' at the following webmail domain:
     erasmusmc dot nl
@@ -31,10 +31,10 @@
 import logging
 import sys
 
-__version_info__ = ('0', '3', '2')
+__version_info__ = ('0', '5', '0')
 __version__ = '.'.join(__version_info__) if (len(__version_info__) == 3) else '.'.join(__version_info__[0:3]) + "-" + __version_info__[3]
 __author__ = 'Youri Hoogstrate'
-__homepage__ = 'https://github.com/yhoogstrate/idat-tools'
+__homepage__ = 'https://github.com/ErasmusMC-Neuro-Oncology/idat-tools'
 __license__ = 'GNU General Public License v3 (GPLv3)'
 __license_notice__ = 'License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\nThis is free software: you are free to change and redistribute it.\nThere is NO WARRANTY, to the extent permitted by law.'
 
@@ -44,4 +44,3 @@ __log_format__ = "[%(filename)s:%(lineno)s - %(funcName)s()] %(asctime)s - %(lev
 # Library best practice: use NullHandler to prevent logging configuration side effects
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
-
