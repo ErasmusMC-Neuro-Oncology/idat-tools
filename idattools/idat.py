@@ -42,6 +42,7 @@ section_names = {
 
 
 UINT16_MAX = np.iinfo(np.uint16).max # intensities and std devs are stored as unsigned 16 bit
+UINT8_MAX = np.iinfo(np.uint8).max # bead counts are stored as unsigned 8 bit
 
 
 
@@ -66,7 +67,7 @@ class IDATdata(object):
         self.array_plate = None
         self.array_well = None
         self.array_unknown_2 = None
-        self.array_run_info: None
+        self.array_run_info = None # was an annotation ('self.array_run_info: None'), which never created the attribute
 
 
     def __str__(self):
@@ -660,10 +661,10 @@ class IDATwriter(IDATdata):
                 elif section == "ARRAY_OLD_STYLE_MANIFEST":
                     offset += write_string(fh_out, self.data.array_old_style_manifest)
                 elif section == "ARRAY_UNKNOWN_1":
-                    offset += write_char(fh_out, chr(self.data.array_unknown_1[0]))
-                    offset += write_char(fh_out, chr(self.data.array_unknown_1[1]))
-                    offset += write_char(fh_out, chr(self.data.array_unknown_1[2]))
-                    offset += write_char(fh_out, chr(self.data.array_unknown_1[3]))
+                    # was: four write_char(chr(byte)) calls - str.encode() is utf-8, so any
+                    # byte >= 128 would be written as two bytes and shift every subsequent
+                    # section offset relative to what section_sizes promised
+                    offset += fh_out.write(bytes(self.data.array_unknown_1))
                 elif section == "ARRAY_SAMPLE_ID":
                     offset += write_string(fh_out, self.data.array_sample_id)
                 elif section == "ARRAY_DESCRIPTION":
@@ -695,7 +696,7 @@ class IDATmixer:
             raise Exception("Unclear input type (idat_reference)")
 
     @beartype
-    def mix(self, idat_mixed_in: IDATdata, mixed_in_fraction: float, output_file: Path, geometric_mean: bool = False, subtract: bool = False):
+    def mix(self, idat_mixed_in: IDATdata, mixed_in_fraction: float, output_file: Path, geometric_mean: bool = False, subtract: bool = False, intersect: bool = False):
         if isinstance(idat_mixed_in, IDATdata):
             pass # ok
         elif isinstance(idat_mixed_in, IDATreader):
@@ -804,29 +805,51 @@ class IDATmixer:
 
         data_left = self.data_idat_ref.per_probe_matrix
         data_right = idat_mixed_in.per_probe_matrix
-        if self.data_idat_ref.array_n_probes != idat_mixed_in.array_n_probes:
-            idattools.log.warning("Different sized arrays are merged ("+str(self.data_idat_ref.array_n_probes)+" ~ "+str(idat_mixed_in.array_n_probes)+") - reduing to intersect:")
-            
-            shared_probes = set(data_left["probe_ids"]).intersection(set(data_right["probe_ids"]))
-            
-            data_left = data_left[data_left["probe_ids"].isin(shared_probes)].reset_index(drop=True)
-            data_right = data_right[data_right["probe_ids"].isin(shared_probes)].reset_index(drop=True)
 
-            data_left_midblock = data_left[data_left["probe_ids"].isin(shared_probes)].reset_index(drop=True)
-            data_right_midblock = data_right[data_right["probe_ids"].isin(shared_probes)].reset_index(drop=True)
+        # The address set of 'left' is preserved in full by default. Probes absent from
+        # 'right' cannot be mixed or subtracted, but they are written out unmodified
+        # rather than dropped: an IDAT with a reduced address set is still readable by
+        # minfi, but stricter consumers (preprocessIllumina, conumee, the classifier
+        # web portals) expect the complete array and may fail or stall on an incomplete
+        # one. Pass intersect=True for the old behaviour of reducing to the shared set.
+        aligned = data_left.merge(
+            data_right[["probe_ids", "probe_std_devs",
+                        "probe_mean_intensities", "probe_n_beads"]],
+            on="probe_ids", how="left", suffixes=("", "_right"), sort=False)
 
-            mixed_data.set_array_n_probes(len(shared_probes))
-            
-            idattools.log.warning("Size intersected array: " + str(len(shared_probes)) + " probes")
-            
-        else:
-            mixed_data.set_array_n_probes(self.data_idat_ref.array_n_probes)
+        if len(aligned) != len(data_left):
+            raise Exception("probe id's are not unique in the mixed-in array")
 
-        if np.any(data_left["probe_ids"] != data_right["probe_ids"]):
-            raise Exception("Arrays have different probe_ids (or ordering?)")
-            
-        if np.any(data_left["probe_mid_block"] != data_right["probe_mid_block"]):
-            raise Exception("Arrays have different probe_mid_block id's (or ordering?)")
+        shared = aligned["probe_mean_intensities_right"].notna().to_numpy()
+        n_unshared = int((~shared).sum())
+
+        if n_unshared > 0:
+            idattools.log.warning(
+                "Arrays differ in content (" + str(self.data_idat_ref.array_n_probes) +
+                " ~ " + str(idat_mixed_in.array_n_probes) + "): " + str(n_unshared) +
+                " probe(s) of the reference are absent from the mixed-in array")
+
+            if intersect:
+                aligned = aligned[shared].reset_index(drop=True)
+                shared = np.ones(len(aligned), dtype=bool)
+                idattools.log.warning("Reducing to the intersect: " + str(len(aligned)) + " probes")
+            else:
+                idattools.log.warning("Those probe(s) are written out unmodified")
+
+        if len(aligned) == 0:
+            raise Exception("No shared probes between the two arrays")
+
+        mixed_data.set_array_n_probes(len(aligned))
+
+        left_i = aligned["probe_mean_intensities"].to_numpy(float)
+        left_sd = aligned["probe_std_devs"].to_numpy(float)
+        left_nb = aligned["probe_n_beads"].to_numpy(float)
+
+        # Non-shared probes are given the reference's own values so that the arithmetic
+        # below stays finite; their results are restored to the originals afterwards.
+        right_i = np.where(shared, aligned["probe_mean_intensities_right"].to_numpy(float), left_i)
+        right_sd = np.where(shared, aligned["probe_std_devs_right"].to_numpy(float), left_sd)
+        right_nb = np.where(shared, aligned["probe_n_beads_right"].to_numpy(float), left_nb)
 
 
         f = mixed_in_fraction
@@ -837,66 +860,60 @@ class IDATmixer:
             # Here 'left' is the observed (e.g. tumour) sample and 'right' the component
             # to be removed (e.g. normal). Subtracting with f equal to the fraction used
             # by 'mix' therefore returns the original reference file.
-            # Intensities are unsigned 16 bit, so the result must be clipped at 0 before
-            # casting - a negative value would otherwise wrap around to ~65000.
-            left_i = data_left["probe_mean_intensities"].to_numpy(float)
-            right_i = data_right["probe_mean_intensities"].to_numpy(float)
             residual_i = (left_i - (f * right_i)) / (1 - f)
 
-            n_negative = int((residual_i < 0).sum())
+            n_negative = int((residual_i[shared] < 0).sum())
             if n_negative > 0:
                 idattools.log.warning(
                     "Subtraction resulted in " + str(n_negative) + " negative probe intensities (" +
-                    str(round(100.0 * n_negative / len(residual_i), 2)) + "%) that were clipped to 0 - "
+                    str(round(100.0 * n_negative / max(int(shared.sum()), 1), 2)) + "%) that were clipped to 0 - "
                     "the mixed-in fraction may be set too high"
                 )
 
-            mixed_intensities = np.round(np.clip(residual_i, 0, UINT16_MAX)).astype("<u2")
+            mixed_intensities = np.round(residual_i)
 
             # Removing a component from the mean does not remove its noise; the
             # uncertainties add up instead. Propagated in quadrature and rescaled by the
             # same 1/(1-f) factor as the intensities.
-            left_sd = data_left["probe_std_devs"].to_numpy(float)
-            right_sd = data_right["probe_std_devs"].to_numpy(float)
-            mixed_std_devs = np.round(np.clip(
-                np.sqrt(np.square(left_sd) + np.square(f * right_sd)) / (1 - f), 0, UINT16_MAX
-            )).astype("<u2")
+            mixed_std_devs = np.round(
+                np.sqrt(np.square(left_sd) + np.square(f * right_sd)) / (1 - f))
 
             # probe_n_beads is a physical bead count - nothing is subtracted from the
             # beads themselves, so the counts of the observed sample are kept as is.
-            mixed_n_beads = data_left["probe_n_beads"].to_numpy("<u1")
+            mixed_n_beads = left_nb
         elif geometric_mean:
             # Geometric mean: I_ref^(1-f) * I_mix^f = exp((1-f)*log(I_ref) + f*log(I_mix))
             # Intensities are clipped at 1 to avoid log(0) for probes with zero signal.
-            left_i = np.clip(data_left["probe_mean_intensities"].to_numpy(float), 1, None)
-            right_i = np.clip(data_right["probe_mean_intensities"].to_numpy(float), 1, None)
-            mixed_intensities = np.round(np.exp((1 - f) * np.log(left_i) + f * np.log(right_i))).astype("<u2")
-
-            left_sd = np.clip(data_left["probe_std_devs"].to_numpy(float), 1, None)
-            right_sd = np.clip(data_right["probe_std_devs"].to_numpy(float), 1, None)
-            mixed_std_devs = np.round(np.exp((1 - f) * np.log(left_sd) + f * np.log(right_sd))).astype("<u2")
-
-            mixed_n_beads = np.round(
-                data_left["probe_n_beads"] * (1 - f) + data_right["probe_n_beads"] * f
-            ).astype("<u1")
+            mixed_intensities = np.round(np.exp(
+                (1 - f) * np.log(np.clip(left_i, 1, None)) +
+                f * np.log(np.clip(right_i, 1, None))))
+            mixed_std_devs = np.round(np.exp(
+                (1 - f) * np.log(np.clip(left_sd, 1, None)) +
+                f * np.log(np.clip(right_sd, 1, None))))
+            mixed_n_beads = np.round(left_nb * (1 - f) + right_nb * f)
         else:
-            mixed_intensities = np.round(
-                data_left["probe_mean_intensities"] * (1 - f) + data_right["probe_mean_intensities"] * f
-            ).astype("<u2")
-            mixed_std_devs = np.round(
-                data_left["probe_std_devs"] * (1 - f) + data_right["probe_std_devs"] * f
-            ).astype("<u2")
+            mixed_intensities = np.round(left_i * (1 - f) + right_i * f)
+            mixed_std_devs = np.round(left_sd * (1 - f) + right_sd * f)
+            mixed_n_beads = np.round(left_nb * (1 - f) + right_nb * f)
 
-            mixed_n_beads = np.round(
-                data_left["probe_n_beads"] * (1 - f) + data_right["probe_n_beads"] * f
-            ).astype("<u1")
+        # probes that could not be mixed keep their original values verbatim
+        mixed_intensities = np.where(shared, mixed_intensities, left_i)
+        mixed_std_devs = np.where(shared, mixed_std_devs, left_sd)
+        mixed_n_beads = np.where(shared, mixed_n_beads, left_nb)
+
+        # only 'subtract' can leave the storable range (it is the only mode with a
+        # 1/(1-f) amplification; a weighted mean of two in-range values cannot exceed
+        # them), but clip unconditionally so that nothing can ever wrap around silently
+        mixed_intensities = np.clip(mixed_intensities, 0, UINT16_MAX).astype("<u2")
+        mixed_std_devs = np.clip(mixed_std_devs, 0, UINT16_MAX).astype("<u2")
+        mixed_n_beads = np.clip(mixed_n_beads, 0, UINT8_MAX).astype("<u1")
 
         new_data = pd.DataFrame({
-            'probe_ids': data_left["probe_ids"],
+            'probe_ids': aligned["probe_ids"].to_numpy("<u4"),
             'probe_std_devs': mixed_std_devs,
             'probe_mean_intensities': mixed_intensities,
             'probe_n_beads': mixed_n_beads,
-            'probe_mid_block': data_left["probe_mid_block"]
+            'probe_mid_block': aligned["probe_mid_block"].to_numpy("<u4")
         })
 
         mixed_data.set_per_probe_matrix(new_data)
